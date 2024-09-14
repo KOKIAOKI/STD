@@ -61,6 +61,13 @@ include_directories(
   ${OpenCV_INCLUDE_DIRS}
 )
 
+add_executable(open_dataset_test demo/open_dataset_test.cpp src/STDesc.cpp )
+target_link_libraries(open_dataset_test 
+        ${catkin_LIBRARIES} 
+        ${PCL_LIBRARIES} 
+        ${OpenCV_LIBS} 
+        ${CERES_LIBRARIES})
+
 add_executable(place_recognition_kitti demo/place_recognition_kitti.cpp src/STDesc.cpp )
 target_link_libraries(place_recognition_kitti 
         ${catkin_LIBRARIES} 
