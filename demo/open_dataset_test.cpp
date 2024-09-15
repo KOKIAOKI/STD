@@ -5,6 +5,12 @@
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
 
+#include <filesystem>
+
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl_ros/transforms.h>
+
 struct PoseStamp {
   double time;
   Eigen::Vector3d trans;
@@ -18,6 +24,16 @@ struct PoseStamp {
     return T;
   }
 };
+
+std::vector<std::string> split(const std::string& input, char delimiter) {
+  std::istringstream stream(input);
+  std::string field;
+  std::vector<std::string> result;
+  while (std::getline(stream, field, delimiter)) {
+    result.push_back(field);
+  }
+  return result;
+}
 
 std::vector<PoseStamp> readGroundTruth(const std::string& file_name) {
   std::ifstream ifs(file_name);
@@ -50,6 +66,50 @@ std::vector<PoseStamp> readGroundTruth(const std::string& file_name) {
   return gt_vec;
 }
 
+std::vector<std::string> find_point_cloud_files(const std::string& path) {
+  std::filesystem::path dir(path);
+  std::vector<std::string> files;
+
+  if (!std::filesystem::exists(dir)) {
+    std::cout << "[ERROR] Cannot open folder" << std::endl;
+    return files;
+  }
+
+  for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+    const std::string extension = entry.path().extension().string();
+    if (extension == ".pcd") {
+      files.emplace_back(entry.path().string());
+    }
+  }
+
+  return files;
+}
+
+bool can_convert_to_double(const std::vector<std::string>& name_vec) {
+  for (const auto& name : name_vec) {
+    try {
+      std::stod(std::filesystem::path(name).stem().string());
+    } catch (const std::invalid_argument& e) {
+      return false;
+    } catch (const std::out_of_range& e) {
+      return false;
+    }
+  }
+  return true;
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr load_point_cloud_file(const std::string& path) {
+  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_ptr(new pcl::PointCloud<pcl::PointXYZ>());
+  const auto extension = std::filesystem::path(path).extension().string();
+  if (extension == ".pcd") {
+    if (pcl::io::loadPCDFile(path, *cloud_ptr) == -1) {
+      std::cout << "[WARN] Can not open pcd file: " << path << std::endl;
+      return cloud_ptr;
+    }
+  }
+  return cloud_ptr;
+}
+
 int main(int argc, char** argv) {
   ros::init(argc, argv, "demo_kitti");
   ros::NodeHandle nh;
@@ -68,27 +128,29 @@ int main(int argc, char** argv) {
   ros::Publisher pubMatchedCorner = nh.advertise<sensor_msgs::PointCloud2>("/cloud_matched_key_points", 100);
   ros::Publisher pubSTD = nh.advertise<visualization_msgs::MarkerArray>("descriptor_line", 10);
 
-  ros::Rate loop(500);
-  ros::Rate slow_loop(10);
-
   STDescManager* std_manager = new STDescManager(config_setting);
-
-  size_t cloudInd = 0;
-  size_t keyCloudInd = 0;
-  pcl::PointCloud<pcl::PointXYZI>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZI>());
-
-  std::vector<double> descriptor_time;
-  std::vector<double> querying_time;
-  std::vector<double> update_time;
-  int triggle_loop_num = 0;
 
   // read ground truth
   const auto gt_vec = readGroundTruth(pose_path);
 
+  // read pcd files
+  auto src_cloud_files = find_point_cloud_files(pcd_folder_path);
+
+  // sort src files
+  if (can_convert_to_double(src_cloud_files)) {
+    std::sort(src_cloud_files.begin(), src_cloud_files.end(), [](const std::string& a, const std::string& b) {
+      return std::stod(std::filesystem::path(a).stem().string()) < std::stod(std::filesystem::path(b).stem().string());
+    });
+  }
+
+  std::vector<std::vector<STDesc>> stds_vec_stock;
+  stds_vec_stock.reserve(src_cloud_files.size());
+
   // file loop
-  for () {
-    // TODO get time from filename
-    double time_stamp = ;
+  for (const auto& src_cloud_file : src_cloud_files) {
+    // get time from filename
+    std::string file_name = std::filesystem::path(src_cloud_file).filename().string();
+    double time_stamp = std::stod(file_name);
 
     // find gt pose stamp
     auto min_error_iter = std::min_element(gt_vec.begin(), gt_vec.end(), [time_stamp](const PoseStamp& a, const PoseStamp& b) {
@@ -97,105 +159,82 @@ int main(int argc, char** argv) {
     int index = std::distance(gt_vec.begin(), min_error_iter);
     auto gt_pose_stamp = gt_vec[index];
 
-    if (time_stamp != gt_pose_stamp.time) {
+    if (std::abs(time_stamp - gt_pose_stamp.time) > 0.01) {
       std::cout << std::fixed << std::setprecision(18) << "[Missing]time_stamp: " << time_stamp << ", gt_pose_stamp.time: " << gt_pose_stamp.time << std::endl;
       continue;
     }
 
-    // pcl::PointCloud<pcl::PointXYZI> cloud;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
-    pcl::transformPointCloud(*cloud, *cloud, gt_pose_stamp.getMatrix();.cast<float>());
+    // load and transform point cloud
+    auto cloud = load_point_cloud_file(src_cloud_file);
+    pcl::transformPointCloud(*cloud, *cloud, gt_pose_stamp.getMatrix().cast<float>());
 
     // insert
-    down_sampling_voxel(cloud, config_setting.ds_size_);
-    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_xyzi(new pcl::PointCloud<pcl::PointXYZI>());
-    pcl::copyPointCloud(*cloud, *cloud_xyzi);
-    temp_cloud->points.insert(temp_cloud->points.end(), cloud_xyzi->points.begin(), cloud_xyzi->points.end());
+    pcl::PointCloud<pcl::PointXYZI>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZI>());
+    pcl::copyPointCloud(*cloud, *temp_cloud);
+    down_sampling_voxel(*temp_cloud, config_setting.ds_size_);
 
-    // step1. Descriptor Extraction
-    auto t_descriptor_begin = std::chrono::high_resolution_clock::now();
+    // Descriptor Extraction
     std::vector<STDesc> stds_vec;
     std_manager->GenerateSTDescs(temp_cloud, stds_vec);
-    auto t_descriptor_end = std::chrono::high_resolution_clock::now();
-    descriptor_time.push_back(time_inc(t_descriptor_end, t_descriptor_begin));
+    stds_vec_stock.emplace_back(stds_vec);
 
-    // step3. Add descriptors to the database
-    auto t_map_update_begin = std::chrono::high_resolution_clock::now();
+    // Add descriptors to the database
     std_manager->AddSTDescs(stds_vec);
-    auto t_map_update_end = std::chrono::high_resolution_clock::now();
-    update_time.push_back(time_inc(t_map_update_end, t_map_update_begin));
 
-    // TODO
+    // save key
     pcl::PointCloud<pcl::PointXYZI> save_key_cloud;
     save_key_cloud = *temp_cloud;
     std_manager->key_cloud_vec_.push_back(save_key_cloud.makeShared());
-  }
-
-  // file loop
-  for () {
-    // step2. Searching Loop
-    auto t_query_begin = std::chrono::high_resolution_clock::now();
-    std::pair<int, double> search_result(-1, 0);
-    std::pair<Eigen::Vector3d, Eigen::Matrix3d> loop_transform;
-    loop_transform.first << 0, 0, 0;
-    loop_transform.second = Eigen::Matrix3d::Identity();
-    std::vector<std::pair<STDesc, STDesc>> loop_std_pair;
-    if (keyCloudInd > config_setting.skip_near_num_) {
-      std_manager->SearchLoop(stds_vec, search_result, loop_transform, loop_std_pair);
-    }
-    if (search_result.first > 0) {
-      std::cout << "[Loop Detection] triggle loop: " << keyCloudInd << "--" << search_result.first << ", score:" << search_result.second << std::endl;
-    }
-    auto t_query_end = std::chrono::high_resolution_clock::now();
-    querying_time.push_back(time_inc(t_query_end, t_query_begin));
 
     // publish
-
     sensor_msgs::PointCloud2 pub_cloud;
     pcl::toROSMsg(*temp_cloud, pub_cloud);
     pub_cloud.header.frame_id = "camera_init";
     pubCureentCloud.publish(pub_cloud);
+
     pcl::toROSMsg(*std_manager->corner_cloud_vec_.back(), pub_cloud);
     pub_cloud.header.frame_id = "camera_init";
     pubCurrentCorner.publish(pub_cloud);
 
+    nav_msgs::Odometry odom;
+    odom.header.frame_id = "camera_init";
+    odom.pose.pose.position.x = gt_pose_stamp.trans.x();
+    odom.pose.pose.position.y = gt_pose_stamp.trans.y();
+    odom.pose.pose.position.z = gt_pose_stamp.trans.z();
+    odom.pose.pose.orientation.w = gt_pose_stamp.quat.w();
+    odom.pose.pose.orientation.x = gt_pose_stamp.quat.x();
+    odom.pose.pose.orientation.y = gt_pose_stamp.quat.y();
+    odom.pose.pose.orientation.z = gt_pose_stamp.quat.z();
+    pubOdomAftMapped.publish(odom);
+  }
+
+  // Searching Loop
+  for (const auto& stds_vec : stds_vec_stock) {
+    auto t_query_begin = std::chrono::high_resolution_clock::now();
+
+    std::pair<int, double> search_result(-1, 0);
+    std::pair<Eigen::Vector3d, Eigen::Matrix3d> loop_transform;
+    loop_transform.first << 0, 0, 0;
+    loop_transform.second = Eigen::Matrix3d::Identity();
+
+    std::vector<std::pair<STDesc, STDesc>> loop_std_pair;
+    std_manager->SearchLoop(stds_vec, search_result, loop_transform, loop_std_pair);
+
+    auto t_query_end = std::chrono::high_resolution_clock::now();
+
+    // publish
     if (search_result.first > 0) {
-      triggle_loop_num++;
+      sensor_msgs::PointCloud2 pub_cloud;
       pcl::toROSMsg(*std_manager->key_cloud_vec_[search_result.first], pub_cloud);
       pub_cloud.header.frame_id = "camera_init";
       pubMatchedCloud.publish(pub_cloud);
-      slow_loop.sleep();
       pcl::toROSMsg(*std_manager->corner_cloud_vec_[search_result.first], pub_cloud);
       pub_cloud.header.frame_id = "camera_init";
       pubMatchedCorner.publish(pub_cloud);
       publish_std_pairs(loop_std_pair, pubSTD);
-      slow_loop.sleep();
-      // getchar();
+    } else {
+      std::cout << "[Search] no loop" << std::endl;
     }
-    temp_cloud->clear();
-    keyCloudInd++;
-    loop.sleep();
-
-    nav_msgs::Odometry odom;
-    odom.header.frame_id = "camera_init";
-    odom.pose.pose.position.x = translation[0];
-    odom.pose.pose.position.y = translation[1];
-    odom.pose.pose.position.z = translation[2];
-    Eigen::Quaterniond q(rotation);
-    odom.pose.pose.orientation.w = q.w();
-    odom.pose.pose.orientation.x = q.x();
-    odom.pose.pose.orientation.y = q.y();
-    odom.pose.pose.orientation.z = q.z();
-    pubOdomAftMapped.publish(odom);
-    loop.sleep();
-    cloudInd++;
-    double mean_descriptor_time = std::accumulate(descriptor_time.begin(), descriptor_time.end(), 0) * 1.0 / descriptor_time.size();
-    double mean_query_time = std::accumulate(querying_time.begin(), querying_time.end(), 0) * 1.0 / querying_time.size();
-    double mean_update_time = std::accumulate(update_time.begin(), update_time.end(), 0) * 1.0 / update_time.size();
-    std::cout << "Total key frame number:" << keyCloudInd << ", loop number:" << triggle_loop_num << std::endl;
-    std::cout << "Mean time for descriptor extraction: " << mean_descriptor_time << "ms, query: " << mean_query_time << "ms, update: " << mean_update_time
-              << "ms, total: " << mean_descriptor_time + mean_query_time + mean_update_time << "ms" << std::endl;
   }
-
   return 0;
 }

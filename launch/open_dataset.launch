@@ -2,15 +2,15 @@
 <!-- Launch file for Livox AVIA LiDAR -->
 
   <arg name="rviz" default="true" />
-  <rosparam command="load" file="$(find std_detector)/config/config_livox.yaml" />
+  <rosparam command="load" file="$(find std_detector)/config/config_open_dataset.yaml" />
   <node 
 		pkg="std_detector" 
-		type="place_recognition_livox" 
-		name="place_recognition_livox" 
+		type="open_dataset_test" 
+		name="open_dataset_test" 
 		output="screen" 
 	/>
-  <param name="pcd_folder_path" type="string" value = "/usb/park2.bag"/>
-  <param name="pose_path" type="string" value = "/usb2/Bags/loop/avia/poses/park2_pose.txt"/>
+  <param name="pcd_folder_path" type="string" value = "/home/koki/Downloads/2021_newer_college/dis3_no_accum_no_leveling"/>
+  <param name="pose_path" type="string" value = "/home/koki/Downloads/2021_newer_college/gt-nc-park.csv"/>
 
   <group if="$(arg rviz)">
     <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find std_detector)/rviz_cfg/demo.rviz" />
