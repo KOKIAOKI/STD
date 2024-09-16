@@ -1,4 +1,5 @@
 #include "include/STDesc.h"
+#include "include/result_csv.hpp"
 #include <nav_msgs/Odometry.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <ros/ros.h>
@@ -115,8 +116,10 @@ int main(int argc, char** argv) {
   ros::NodeHandle nh;
   std::string pcd_folder_path;
   std::string pose_path;
+  std::string output_folder_path;
   nh.param<std::string>("pcd_folder_path", pcd_folder_path, "");
   nh.param<std::string>("pose_path", pose_path, "");
+  nh.param<std::string>("output_folder_path", output_folder_path, "");
 
   ConfigSetting config_setting;
   read_parameters(nh, config_setting);
@@ -133,6 +136,12 @@ int main(int argc, char** argv) {
   // read ground truth
   const auto gt_vec = readGroundTruth(pose_path);
 
+  // Create output folder with date and create result csv
+  std::string date = create_date();
+  std::string pcd_save_folder_path = output_folder_path + "/" + date;
+  std::filesystem::create_directory(pcd_save_folder_path);
+  ResultCsv result_csv(pcd_save_folder_path, pose_path);
+
   // read pcd files
   auto src_cloud_files = find_point_cloud_files(pcd_folder_path);
 
@@ -144,7 +153,11 @@ int main(int argc, char** argv) {
   }
 
   std::vector<std::vector<STDesc>> stds_vec_stock;
+  std::vector<std::string> file_name_vec;
+  std::vector<Eigen::Matrix4d> gt_pose_stamps_vec;
   stds_vec_stock.reserve(src_cloud_files.size());
+  file_name_vec.reserve(src_cloud_files.size());
+  gt_pose_stamps_vec.reserve(src_cloud_files.size());
 
   // file loop
   for (const auto& src_cloud_file : src_cloud_files) {
@@ -166,7 +179,8 @@ int main(int argc, char** argv) {
 
     // load and transform point cloud
     auto cloud = load_point_cloud_file(src_cloud_file);
-    pcl::transformPointCloud(*cloud, *cloud, gt_pose_stamp.getMatrix().cast<float>());
+    const Eigen::Matrix4d gt_T = gt_pose_stamp.getMatrix();
+    pcl::transformPointCloud(*cloud, *cloud, gt_T.cast<float>());
 
     // insert
     pcl::PointCloud<pcl::PointXYZI>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZI>());
@@ -177,6 +191,8 @@ int main(int argc, char** argv) {
     std::vector<STDesc> stds_vec;
     std_manager->GenerateSTDescs(temp_cloud, stds_vec);
     stds_vec_stock.emplace_back(stds_vec);
+    file_name_vec.emplace_back(file_name);
+    gt_pose_stamps_vec.emplace_back(gt_T);
 
     // Add descriptors to the database
     std_manager->AddSTDescs(stds_vec);
@@ -209,8 +225,8 @@ int main(int argc, char** argv) {
   }
 
   // Searching Loop
-  for (const auto& stds_vec : stds_vec_stock) {
-    auto t_query_begin = std::chrono::high_resolution_clock::now();
+  for (int i = 0; i < stds_vec_stock.size(); i++) {
+    const auto start_time = std::chrono::system_clock::now();
 
     std::pair<int, double> search_result(-1, 0);
     std::pair<Eigen::Vector3d, Eigen::Matrix3d> loop_transform;
@@ -218,9 +234,19 @@ int main(int argc, char** argv) {
     loop_transform.second = Eigen::Matrix3d::Identity();
 
     std::vector<std::pair<STDesc, STDesc>> loop_std_pair;
-    std_manager->SearchLoop(stds_vec, search_result, loop_transform, loop_std_pair);
+    std_manager->SearchLoop(stds_vec_stock[i], search_result, loop_transform, loop_std_pair);
 
-    auto t_query_end = std::chrono::high_resolution_clock::now();
+    const auto end_time = std::chrono::system_clock::now();
+    const double elapsed_time_msec = std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count() / 1e6;
+
+    if (search_result.first < 0) continue;
+
+    const std::string matched_name = file_name_vec[search_result.first];
+
+    Eigen::Isometry3d result_T = Eigen::Isometry3d::Identity();
+    result_T.translation() = loop_transform.first;
+    result_T.linear() = loop_transform.second;
+    result_csv.write(std::filesystem::path(matched_name).stem().string(), elapsed_time_msec, gt_pose_stamps_vec[i], Eigen::Matrix4d::Identity());
 
     // publish
     if (search_result.first > 0) {

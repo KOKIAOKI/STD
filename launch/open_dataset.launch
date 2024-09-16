@@ -9,8 +9,10 @@
 		name="open_dataset_test" 
 		output="screen" 
 	/>
-  <param name="pcd_folder_path" type="string" value = "/home/koki/Downloads/2021_newer_college/dis3_no_accum_no_leveling"/>
+  <param name="pcd_folder_path" type="string" value = "/home/koki/Downloads/2021_newer_college/output_fixed_gt/no_accum_no_leveling"/>
+  <!-- <param name="pcd_folder_path" type="string" value = "/home/koki/Downloads/2021_newer_college/output_fixed_gt/accum_no_leveling"/> -->
   <param name="pose_path" type="string" value = "/home/koki/Downloads/2021_newer_college/gt-nc-park.csv"/>
+  <param name="output_folder_path" type="string" value="/home/koki/Downloads/2021_newer_college/results/std"/>
 
   <group if="$(arg rviz)">
     <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find std_detector)/rviz_cfg/demo.rviz" />

@@ -356,6 +356,7 @@ void STDescManager::SearchLoop(
   auto t1 = std::chrono::high_resolution_clock::now();
   std::vector<STDMatchList> candidate_matcher_vec;
   candidate_selector(stds_vec, candidate_matcher_vec);
+  std::cout << "stds_vec size:" << stds_vec.size() << " candidates size:" << candidate_matcher_vec.size();
 
   auto t2 = std::chrono::high_resolution_clock::now();
   // step2, select best candidates from rough candidates
@@ -384,6 +385,7 @@ void STDescManager::SearchLoop(
   //           << " ms, candidate verify: " << time_inc(t3, t2) << "ms"
   //           << std::endl;
 
+  std::cout << "best score: " << best_score << std::endl;
   if (best_score > config_setting_.icp_threshold_) {
     loop_result = std::pair<int, double>(best_candidate_id, best_score);
     loop_transform = best_transform;

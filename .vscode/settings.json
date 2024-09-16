@@ -68,6 +68,7 @@
     "concepts": "cpp",
     "ranges": "cpp",
     "stop_token": "cpp",
-    "codecvt": "cpp"
+    "codecvt": "cpp",
+    "core": "cpp"
   }
 }
