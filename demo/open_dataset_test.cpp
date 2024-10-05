@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
     // load and transform point cloud
     auto cloud = load_point_cloud_file(src_cloud_file);
     const Eigen::Matrix4d gt_T = gt_pose_stamp.getMatrix();
-    pcl::transformPointCloud(*cloud, *cloud, gt_T.cast<float>());
+    // pcl::transformPointCloud(*cloud, *cloud, gt_T.cast<float>());
 
     // insert
     pcl::PointCloud<pcl::PointXYZI>::Ptr temp_cloud(new pcl::PointCloud<pcl::PointXYZI>());
@@ -245,21 +245,11 @@ int main(int argc, char** argv) {
     const std::string matched_name = file_name_vec[i];
     const Eigen::Matrix4d gt_T_world_target = gt_pose_stamps_vec[search_result.first];
     const Eigen::Matrix4d gt_T_world_source = gt_pose_stamps_vec[i];
-    Eigen::Isometry3d result_T_target_source = Eigen::Isometry3d::Identity();
-    result_T_target_source.translation() = loop_transform.first;
-    result_T_target_source.linear() = loop_transform.second;
+    Eigen::Isometry3d result_relative_T = Eigen::Isometry3d::Identity();
+    result_relative_T.translation() = loop_transform.first;
+    result_relative_T.linear() = loop_transform.second;
 
-    const Eigen::Matrix4d result_T_world_source = gt_T_world_target * result_T_target_source.matrix();
-    const Eigen::Matrix4d error_T = result_T_world_source.inverse() * gt_T_world_source;
-
-    result_csv.write(
-      std::filesystem::path(matched_name).stem().string(),
-      elapsed_time_msec,
-      error_T,
-      gt_T_world_source,
-      gt_T_world_target,
-      result_T_world_source,
-      result_T_target_source.matrix());
+    result_csv.write(std::filesystem::path(matched_name).stem().string(), elapsed_time_msec, gt_T_world_source, gt_T_world_target, result_relative_T.matrix());
 
     std::string matched_folder_path = pcd_save_folder_path + "/" + matched_name;
     if (!std::filesystem::exists(matched_folder_path)) {
@@ -270,7 +260,12 @@ int main(int argc, char** argv) {
     pcl::io::savePCDFileBinary(matched_folder_path + "/target.pcd", target_cloud);
 
     pcl::PointCloud<pcl::PointXYZI> source_cloud = *std_manager->key_cloud_vec_[i];
+    pcl::transformPointCloud(source_cloud, source_cloud, result_relative_T.matrix().cast<float>());
     pcl::io::savePCDFileBinary(matched_folder_path + "/source.pcd", source_cloud);
+
+    pcl::PointCloud<pcl::PointXYZI> source_corner_cloud;
+    pcl::copyPointCloud(*std_manager->corner_cloud_vec_[i], source_corner_cloud);
+    pcl::transformPointCloud(source_corner_cloud, source_corner_cloud, result_relative_T.matrix().cast<float>());
 
     // publish
     if (search_result.first > 0) {
@@ -282,6 +277,13 @@ int main(int argc, char** argv) {
       pub_cloud.header.frame_id = "camera_init";
       pubMatchedCorner.publish(pub_cloud);
       publish_std_pairs(loop_std_pair, pubSTD);
+
+      pcl::toROSMsg(source_cloud, pub_cloud);
+      pub_cloud.header.frame_id = "camera_init";
+      pubCureentCloud.publish(pub_cloud);
+      pcl::toROSMsg(source_corner_cloud, pub_cloud);
+      pub_cloud.header.frame_id = "camera_init";
+      pubCurrentCorner.publish(pub_cloud);
     } else {
       std::cout << "[Search] no loop" << std::endl;
     }
