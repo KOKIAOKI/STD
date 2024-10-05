@@ -245,21 +245,11 @@ int main(int argc, char** argv) {
     const std::string matched_name = file_name_vec[i];
     const Eigen::Matrix4d gt_T_world_target = gt_pose_stamps_vec[search_result.first];
     const Eigen::Matrix4d gt_T_world_source = gt_pose_stamps_vec[i];
-    Eigen::Isometry3d result_T_target_source = Eigen::Isometry3d::Identity();
-    result_T_target_source.translation() = loop_transform.first;
-    result_T_target_source.linear() = loop_transform.second;
+    Eigen::Isometry3d relative_T = Eigen::Isometry3d::Identity();
+    relative_T.translation() = loop_transform.first;
+    relative_T.linear() = loop_transform.second;
 
-    const Eigen::Matrix4d result_T_world_source = gt_T_world_target * result_T_target_source.matrix();
-    const Eigen::Matrix4d error_T = result_T_world_source.inverse() * gt_T_world_source;
-
-    result_csv.write(
-      std::filesystem::path(matched_name).stem().string(),
-      elapsed_time_msec,
-      error_T,
-      gt_T_world_source,
-      gt_T_world_target,
-      result_T_world_source,
-      result_T_target_source.matrix());
+    result_csv.write(std::filesystem::path(matched_name).stem().string(), elapsed_time_msec, gt_T_world_source, gt_T_world_target, relative_T.matrix());
 
     std::string matched_folder_path = pcd_save_folder_path + "/" + matched_name;
     if (!std::filesystem::exists(matched_folder_path)) {
@@ -282,6 +272,13 @@ int main(int argc, char** argv) {
       pub_cloud.header.frame_id = "camera_init";
       pubMatchedCorner.publish(pub_cloud);
       publish_std_pairs(loop_std_pair, pubSTD);
+
+      pcl::toROSMsg(source_cloud, pub_cloud);
+      pub_cloud.header.frame_id = "camera_init";
+      pubCureentCloud.publish(pub_cloud);
+      pcl::toROSMsg(*std_manager->corner_cloud_vec_[i], pub_cloud);
+      pub_cloud.header.frame_id = "camera_init";
+      pubCurrentCorner.publish(pub_cloud);
     } else {
       std::cout << "[Search] no loop" << std::endl;
     }
