@@ -241,12 +241,36 @@ int main(int argc, char** argv) {
 
     if (search_result.first < 0) continue;
 
-    const std::string matched_name = file_name_vec[search_result.first];
+    std::cout << "key id " << search_result.first << "query id " << i << std::endl;
+    const std::string matched_name = file_name_vec[i];
+    const Eigen::Matrix4d gt_T_world_target = gt_pose_stamps_vec[search_result.first];
+    const Eigen::Matrix4d gt_T_world_source = gt_pose_stamps_vec[i];
+    Eigen::Isometry3d result_T_target_source = Eigen::Isometry3d::Identity();
+    result_T_target_source.translation() = loop_transform.first;
+    result_T_target_source.linear() = loop_transform.second;
 
-    Eigen::Isometry3d result_T = Eigen::Isometry3d::Identity();
-    result_T.translation() = loop_transform.first;
-    result_T.linear() = loop_transform.second;
-    result_csv.write(std::filesystem::path(matched_name).stem().string(), elapsed_time_msec, gt_pose_stamps_vec[i], Eigen::Matrix4d::Identity());
+    const Eigen::Matrix4d result_T_world_source = gt_T_world_target * result_T_target_source.matrix();
+    const Eigen::Matrix4d error_T = result_T_world_source.inverse() * gt_T_world_source;
+
+    result_csv.write(
+      std::filesystem::path(matched_name).stem().string(),
+      elapsed_time_msec,
+      error_T,
+      gt_T_world_source,
+      gt_T_world_target,
+      result_T_world_source,
+      result_T_target_source.matrix());
+
+    std::string matched_folder_path = pcd_save_folder_path + "/" + matched_name;
+    if (!std::filesystem::exists(matched_folder_path)) {
+      std::filesystem::create_directory(matched_folder_path);
+    }
+
+    pcl::PointCloud<pcl::PointXYZI> target_cloud = *std_manager->key_cloud_vec_[search_result.first];
+    pcl::io::savePCDFileBinary(matched_folder_path + "/target.pcd", target_cloud);
+
+    pcl::PointCloud<pcl::PointXYZI> source_cloud = *std_manager->key_cloud_vec_[i];
+    pcl::io::savePCDFileBinary(matched_folder_path + "/source.pcd", source_cloud);
 
     // publish
     if (search_result.first > 0) {

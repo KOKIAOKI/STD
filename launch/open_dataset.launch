@@ -9,9 +9,9 @@
 		name="open_dataset_test" 
 		output="screen" 
 	/>
-  <param name="pcd_folder_path" type="string" value = "/home/koki/Downloads/2021_newer_college/output_fixed_gt/no_accum_no_leveling"/>
-  <!-- <param name="pcd_folder_path" type="string" value = "/home/koki/Downloads/2021_newer_college/output_fixed_gt/accum_no_leveling"/> -->
-  <param name="pose_path" type="string" value = "/home/koki/Downloads/2021_newer_college/gt-nc-park.csv"/>
+  <!-- <param name="pcd_folder_path" type="string" value = "/home/koki/Downloads/2021_newer_college/source/no_accum_no_leveling"/> -->
+  <param name="pcd_folder_path" type="string" value = "/home/koki/Downloads/2021_newer_college/source/accum_no_leveling"/>
+  <param name="pose_path" type="string" value = "/home/koki/Downloads/2021_newer_college/source/accum_no_leveling.csv"/>
   <param name="output_folder_path" type="string" value="/home/koki/Downloads/2021_newer_college/results/std"/>
 
   <group if="$(arg rviz)">
